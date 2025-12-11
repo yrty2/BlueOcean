@@ -19,7 +19,7 @@ importsは、
 ```javascript
 [
   {
-    call:add(x,y){return x+y} //js関数
+    call:add(x,y){return x+y}, //js関数
     param:["R","R"], //引数のbo型
     result:["R"] //返り値のbo型
   }
