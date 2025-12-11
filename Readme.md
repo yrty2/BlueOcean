@@ -10,13 +10,19 @@
 
 oceanCompiler.jsをダウンロード
 
-blueocean.parse("filepath.bo",imports,必要であればcallback)で実行
+```javascript
+blueocean.parse("filepath.bo",imports/*必要であれば,callbackfunction*/)
+```
 
-または、blueocean.call("yourcode",imports)でも可
+または、
+
+```javascript
+blueocean.call("yourcode",imports)
+```
 
 importsは、
 
-```javascript:js
+```javascript
 [
   {
     call:add(x,y){return x+y}, //js関数
