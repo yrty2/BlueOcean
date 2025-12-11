@@ -4,9 +4,54 @@
         <title>BlueOcean editor</title>
         <meta http-equiv="content-type" content="text/html; charset=UTF-8">
     </head>
+    <style>
+        .left{
+            position:absolute;
+            left:700px;
+            width:750px;
+            height:640px;
+            font-size:25px;
+        }
+        .sea{
+            cursor:grab;
+        }
+    </style>
     <body>
         <h1>BlueOcean editor</h1>
-        <img src="ocean.jpeg">
+        <img class="sea" src="ocean.jpeg" onclick="sea()">
+        <textarea class="left">
+//printはconsole.logと同じです。
+//Rは実数全体の集合を意味します。
+//bind(R)は実数をjsの配列、arrにpushする関数です。Webassemblyのimportの機能で任意のjs関数を与えられます。
+fn squared(x in R)=>R{
+x*x;
+}
+fn main(void)=>void{    
+    print 1+2;
+}
+whr size=5 in R;
+print squared(size);
+main(void);
+
+whr x=0;
+whr c=1;
+for(k=0--10000000){
+x=x+c/(2k+1);
+c=c*(-1);
+}
+x=4x;
+while(x>1){
+x=x-1;
+bind(x);
+}
+print x;</textarea>
+        <br>上の画像クリックでプログラムを実行
+        <hr>
+        Reference<br>
+        botype: f64 -> R i64 -> Z,N v128(simd f64x2)-> C<br>
+        local declear: var x:f64=y -> where x is y in R または whr x=y in R<br>
+        fn name(x:f64,y:f64)=>f64{expression} -> fn name(x in R,y in R)=>R{expression}<br>
+        for(let k:f64=1; k<=100; k+=1.0){expression} -> for(k=1--100){expression}<br>
         <script type="text/javascript" src="oceanCompiler.js"></script>
         <script type="text/javascript" src="main.js"></script>
     </body>

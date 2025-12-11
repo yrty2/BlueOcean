@@ -1579,8 +1579,8 @@ const blueocean={
         }
         return blueocean.wasmStack[id].output();
     },
-    async parse(filename,imports,callback){
-        await fetch(filename).then(a=>{
+    parse(filename,imports,callback){
+        fetch(filename).then(a=>{
             a.text().then(v=>{blueocean.call(v,imports); if(callback){callback()}});
         });
     }
