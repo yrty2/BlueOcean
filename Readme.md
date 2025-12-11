@@ -16,7 +16,7 @@ blueocean.parse("filepath.bo",imports,必要であればcallback)で実行
 
 importsは、
 
-```javascript
+```javascript:js
 [
   {
     call:add(x,y){return x+y}, //js関数
