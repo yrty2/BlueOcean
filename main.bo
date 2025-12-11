@@ -1,4 +1,6 @@
 //printはconsole.logと同じです。
+//Rは実数全体の集合を意味します。
+//bind(R)は実数をjsの配列、arrにpushする関数です。Webassemblyのimportの機能で任意のjs関数を与えられます。
 fn squared(x in R)=>R{
 x*x;
 }
@@ -10,10 +12,8 @@ print squared(size);
 main(void);
 
 whr x=0;
-whr c=1;
-for(k=0--10000000){
-x=x+c/(2k+1);
-c=c*(-1);
+for(k=0--1000000){
+x=x+negk(k)/(2k+1);
 }
 x=4x;
 while(x>1){
