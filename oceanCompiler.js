@@ -468,7 +468,7 @@ const blueocean={
                     }
                 }
                 expect("}");
-                return {tree:nodes,type:"PiecewiseExpression"};
+                return {tree:nodes,type:"PiecewiseExpression",group:"guess"};
             }
             //絶対値記号
             if(t==="|"){
@@ -1127,7 +1127,7 @@ const blueocean={
             if(kst.type=="Identifier"){
                 //local.get
                 if(kst.name=="otherwise" || kst.name=="true"){
-                    push(i64.const,1);
+                    push(i32.const,1);
                 }else if(kst.name=="i"){
                     push(...v128.const,0,0,0,0,0,0,0,0,...ieee754(1));
                 }else{
@@ -1505,10 +1505,10 @@ const blueocean={
             }
             if(kst.type=="PiecewiseExpression"){
                 function parseConditions(k){
-                    push(...parseAST(kst.tree[k].conditions),op.if,op.f64);
-                    push(...parseAST(kst.tree[k].res),op.else);
+                    push(...parseAST(kst.tree[k].conditions,"R"),op.if,op.void);
+                    push(...parseAST(kst.tree[k].res,"R"),op.else);
                     if(k+1==kst.tree.length){
-                    push(f64.const,...ieee754(0));//でなければ
+                    //push(f64.const,...ieee754(0));//でなければ
                     }else{
                         parseConditions(k+1);
                     }
