@@ -1,7 +1,22 @@
-//hello blueocean
-print 1+2
-print 21
-where x is 3 in R;
-print |2x-1|;
-//テキストエディタには文字ハイライトがないので、blueocean専用のIDEを作るべき。
-print 2;
+fn squared(x in R)=>R{
+x*x;
+}
+fn main(void)=>void{    
+    print 1+2;
+}
+whr size=5 in R;
+print squared(size);
+main(void);
+
+whr x=0;
+whr c=1;
+for(k=0--10000000){
+x=x+c/(2k+1);
+c=c*(-1);
+}
+x=4x;
+while(x>1){
+x=x-1;
+print x;
+}
+print x;
