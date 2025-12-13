@@ -1,6 +1,6 @@
 const blueocean={
     version:1.0,
-    opcode:["print","as","where","in","is","consume_R","for","whr","fn","while","assign"],
+    opcode:["print","as","where","in","is","consume_R","for","whr","fn","while","assign","unreachable"],
     tokenizer(code){
         function pushAt(u,t,v){
         return [...u.slice(0,t+1),v,...u.slice(t+1,u.length)];
@@ -147,6 +147,9 @@ const blueocean={
             if(word==":"){
                 startpoint=true;
             }
+            if(word==" " || word=="\n"){
+                startpoint=true;
+            }
             if(In(word,splitter)){
                 if(token.length>0){
                 tokens.push(token);
@@ -206,7 +209,7 @@ const blueocean={
             if(left==right){
                 return left;
             }
-            console.warn("違う型同士で演算を行うことはできません！");
+            //console.warn("違う型同士で演算を行うことはできません！");
         }
         function peek() {
             return token[pos];
@@ -298,6 +301,9 @@ const blueocean={
                 }
                 if(op==="consume_R"){
                     return {type:"consume_R"};
+                }
+                if(op==="unreachable"){
+                    return {type:"unreachable"};
                 }
                 if(op==="where"){
                     //where [name] is [literal] in [type]
@@ -479,9 +485,6 @@ const blueocean={
             }
             console.warn(`構文エラー:${t}が理解できません。`);
             blueocean.errored=true;
-            if(t=="-"){
-                console.warn(`おそらく[x*-y]のようにしていませんか？\n正しいスペル[x*(-y)]`);
-            }
         }
         const ast=[];
         for(let k=0; k<tokens.length; ++k){
@@ -580,6 +583,43 @@ const blueocean={
             return res;
         }
         function leb128(intger){
+            let bin=intger.toString(2);//binary encode
+            //7の倍数ビットに変換
+            let l=0;
+            if(bin.length%7!=0){
+            l=7-bin.length%7;
+            }
+            let bits=Array(l).fill(0);
+            for(let k=0; k<bin.length; ++k){
+                if(bin[k]=="1"){
+                    bits.push(1);
+                }else{
+                    bits.push(0);
+                }
+            }
+            if(intger<0){
+            for(let k=0; k<bits.length; ++k){
+                bits[k]=bits[k]^1;
+            }
+            let i=bits.length-1;
+            while(i!=-1 && bits[i]==1){
+                bits[i]=0;
+                i--;
+            }
+            if(i!=-1){
+            bits[i]=1;
+            }
+            }
+            const bytes=[];
+            for(let k=0; k<bits.length; k+=7){
+                let top="1";
+                if(k==0){
+                    top="0";
+                }
+                bytes.push(parseInt(top+String(bits[k])+String(bits[k+1])+String(bits[k+2])+String(bits[k+3])+String(bits[k+4])+String(bits[k+5])+String(bits[k+6]),2));
+            }
+            return bytes;
+            //lsb to msb?必要かな...?
         }
         const asts=blueocean.parsedocean(midoricode);
         //javascriptに合わせて全て倍精度計算にするよう変更。
@@ -618,7 +658,10 @@ const blueocean={
             ne:0x62,
             neg:0x9a,
             ceil:0x9b,
-            demote:0xb6
+            demote:0xb6,
+            convert_u:0xba,
+            convert_s:0xb9,
+            reinterpret:0xbf
         }
         const i32={
             const:0x41,
@@ -631,12 +674,14 @@ const blueocean={
             sub:0x7d,
             mul:0x7e,
             div_u:0x7f,
-            div_s:0x80
+            div_s:0x80,
+            reinterpret:0xbd,
         }
         //i64,f64,v128の並び
         const local={
             get:0x20,
             set:0x21,
+            tee:0x22,
             f64:[],
             i64:[],
             v128:[]
@@ -657,6 +702,21 @@ const blueocean={
             loop:0x03,
             call:0x10,
             simd:0xfd
+        }
+        function botype(type){
+            if(type==op.f64){
+                return "R";
+            }
+            if(type==op.v128){
+                return "C";
+            }
+            if(type==op.i64){
+                return "Z";
+            }
+            if(type==op.i32){
+                return "B";
+            }
+            return "void";
         }
         const v128={
             const:[0xfd,0x0c],
@@ -688,13 +748,15 @@ const blueocean={
         //計算用の変数
         let define=[];//funとか。
         local.v128.push({name:"complex128c",group:"C"});
+        local.f64.push({name:"float64d",group:"C"});
         const forp={
             c:localid("complex128c"),
+            d:localid("float64d"),
         }
         if(!userimport){
             userimport=[];
         }
-        let importamount=2;
+        let importamount=3;
         let imports={
         env:{
             printf:x=>console.log(x),
@@ -720,21 +782,24 @@ const blueocean={
                     y="";
                 }
                 console.log(`${x}${operator}${y}i`);
-            }
+            },
+            printi:x=>console.log(x),
         }
     }
         const funcnde=[
             ...[0x60,0x01,op.f64,0x00],
             ...[0x60,0x02,op.f64,op.f64,0x00],
+            ...[0x60,0x01,op.i64,0x00],
         ];
-        const funcparams=[[op.f64],[op.f64,op.f64]];
-        const funcresults=[[],[]];
+        const funcpr=["124:","124,124:","126:"];
+        const funcparams=[[op.f64],[op.f64,op.f64],[op.i64]];
+        const funcresults=[[],[],[]];
         let typesection=1+funcnde.length+3;
         //typesection
         /*userimport=[{call:f0(x),param,result},...f1(x),f2(x),...]*/
         let envmod=[];
         const func={};
-        const Functions=[0,1];
+        const Functions=[0,1,2];
         for(const u of userimport){
         imports.env[u.call.name]=u.call;
             //typesectionに追加
@@ -764,19 +829,20 @@ const blueocean={
             }
             //console.log(imports);
             let signature=0;
-            const ip=funcparams.findIndex(e=>e.join()==u.param.join());
-            const ir=funcresults.findIndex(e=>e.join()==u.result.join());
-            if(ip!=ir || ip==-1 || ir==-1){
+            const pr=u.param.join()+":"+u.result.join();
+            if(funcpr.indexOf(pr)==-1){
+                funcpr.push(pr);
+                signature=funcparams.length;
                 funcparams.push(u.param);
                 funcresults.push(u.result);
-                signature=funcparams.length;
                 const thisnde=[0x60,u.param.length,...u.param,u.result.length,...u.result];
                 funcnde.push(...thisnde);
                 typesection+=thisnde.length;
             }else{
-                signature=ip;
+                signature=funcpr.indexOf(pr);
             }
-            Functions.push(ip);
+            Functions.push(signature);
+            console.log(funcpr);
             envmod.push(0x03,...UTFer("env"),u.call.name.length,...UTFer(u.call.name),0x00,signature);
             func[u.call.name]=importamount;
             importamount++;
@@ -789,16 +855,16 @@ const blueocean={
         function createFunctions(name,params,results,locals,callstacks){ //params,results,locals,locals=[f64,f64...]
             funcsignature++;
             let funcIndex=funcparams.length;
-            const ip=funcparams.findIndex(e=>e.join()==params.join());
-            const ir=funcresults.findIndex(e=>e.join()==results.join());
-            if(ip!=ir || ip==-1 || ir==-1){
+            const pr=params.join()+":"+results.join();
+            if(funcpr.indexOf(pr)==-1){
+                funcpr.push(pr);
                 funcparams.push(params);
                 funcresults.push(results);
                 const thisnde=[0x60,params.length,...params,results.length,...results];
                 funcnde.push(...thisnde);
                 typesection+=thisnde.length;
             }else{
-                funcIndex=ip;
+                funcIndex=funcpr.indexOf(pr);
             }
             func[name]=funcsignature;
             //FunctionSection
@@ -836,7 +902,6 @@ const blueocean={
             }
             const F=[localcounters.length/2,...localcounters,...callstacks,op.end];
             functions.push(...leb128_u(F.length),...F);
-            //importあたりのことを考えると頭が痛くなる...
         }
         function aloopstart(timerid,times,up){
             const tapea=[];
@@ -985,6 +1050,19 @@ const blueocean={
             ...aloopend(2,true),
             local.get,1,f64.mul
         ]);
+        createFunctions("f64sin",[op.f64],[op.f64],[],[
+            local.get,0,f64.const,...ieee754(0),f64.eq,op.if,op.f64,
+            f64.const,...ieee754(0),op.else,
+            local.get,0,f64.const,...ieee754(Math.PI/2),
+            f64.sub,
+            op.call,func.f64cos,
+            op.end
+        ]);
+        createFunctions("f64tan",[op.f64],[op.f64],[],[
+            local.get,0,op.call,func.f64sin,
+            local.get,0,op.call,func.f64cos,
+            f64.div
+        ]);
         createFunctions("c128mul",[op.v128,op.v128],[op.v128],[],[
             //local.get,0,local.get,1,...f64x2.mul
             local.get,0,
@@ -1047,26 +1125,24 @@ const blueocean={
             op.call,func.f64atan,f64.const,...ieee754(2),f64.mul,
             op.end,op.end
         ]);
-        createFunctions("c128abs",[op.v128],[op.v128],[],[
+        createFunctions("c128abs",[op.v128],[op.f64],[],[
             //absによってf64に変換される。 x^2+y^2 sqrt
-            ...v128.const,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
             local.get,0,...f64x2.extract,0,local.get,0,...f64x2.extract,0,f64.mul,
             local.get,0,...f64x2.extract,1,local.get,0,...f64x2.extract,1,f64.mul,
-            f64.add,f64.sqrt,...f64x2.replace,0
+            f64.add,f64.sqrt
         ]);
         createFunctions("c128conjugate",[op.v128],[op.v128],[],[
             local.get,0,
             local.get,0,...f64x2.extract,1,f64.neg,
             ...f64x2.replace,1
         ]);
-        createFunctions("c128arg",[op.v128],[op.v128],[],[
+        createFunctions("c128arg",[op.v128],[op.f64],[],[
             //複素数型->実数(ラジアン)というふうにしたい
-            ...v128.const,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
             local.get,0,
             ...f64x2.extract,0,
             local.get,0,
             ...f64x2.extract,1,
-            op.call,func.f64atan2,...f64x2.replace,0
+            op.call,func.f64atan2
         ]);
         /*createFunctions("c128div",[op.v128,op.v128],[op.v128],[],[
             local.get,0,
@@ -1078,8 +1154,22 @@ const blueocean={
         ]);
         //console.log(func);
         let blocks=[];
+        let defresult=[];
         let defidentifer=[];//[[x,y]]
-        function parseAST(kst,mother){
+        function parseAST(kst,group){
+            if(!group){
+            group="void";//型納める
+            }
+            function fight(type1,type2){
+                const botypes="NZRC";
+                if(type1==type2){
+                    return type1;
+                }
+                if(botypes.indexOf(type1)>botypes.indexOf(type2)){
+                    return type1;
+                }
+                return type2;
+            }
             function push(...arr){
                 if(define.length==0){
                     tape.push(...arr);
@@ -1087,24 +1177,18 @@ const blueocean={
                     define[define.length-1].push(...arr);
                 }
             }
-            function pi(){
-                push(f64.const,...ieee754(Math.PI));
-            }
-            function tau(){
-                push(f64.const,...ieee754(Math.PI/2));
-            }
             function addLocal(name,init,group){
             if(group=="R"){
                 local.f64.push({name:name,group:group,id:local.f64.length});
-                push(...parseAST(init,group),local.set,`R${local.f64.length-1}`);
+                push(...parseAST(init,"R")[0],local.set,`R${local.f64.length-1}`);
             }
             if(group=="Z" || group=="N"){
                 local.i64.push({name:name,group:group,id:local.i64.length});
-                push(...parseAST(init,group),local.set,`Z${local.v128.length-1}`);
+                push(...parseAST(init,"Z")[0],local.set,`Z${local.v128.length-1}`);
             }
             if(group=="C"){
                 local.v128.push({name:name,group:group,id:local.v128.length});
-                push(...parseAST(init,group),local.set,`C${local.v128.length-1}`);
+                push(...parseAST(init,"C")[0],local.set,`C${local.v128.length-1}`);
             }
         }
             function createLocal(value,group){
@@ -1114,248 +1198,325 @@ const blueocean={
             }
             let tape=[];
             if(kst.type=="Literal"){
-                if(mother=="R"){
+                if(group=="void" || group=="R"){
                     push(f64.const,...ieee754(kst.value));
-                }
-                if(mother=="Z"){
-                    push(i64.const,...leb128(kst.value));
-                }
-                if(mother=="C"){
-                    push(...v128.const,...ieee754(kst.value),0,0,0,0,0,0,0,0);
+                    group="R";
+                }else{
+                    if(group=="Z"){
+                        push(i64.const,...leb128(kst.value));
+                        group="Z";
+                    }
+                    if(group=="C"){
+                        push(...v128.const,...ieee754(kst.value),...ieee754(0));
+                        group="C";
+                    }
                 }
             }
             if(kst.type=="Identifier"){
                 //local.get
-                if(kst.name=="otherwise" || kst.name=="true"){
+                if(kst.name=="false"){
+                    push(i32.const,0);
+                    group="B";
+                }else if(kst.name=="otherwise" || kst.name=="true"){
                     push(i32.const,1);
+                    group="B";
                 }else if(kst.name=="i"){
                     push(...v128.const,0,0,0,0,0,0,0,0,...ieee754(1));
+                    group="C";
                 }else{
                     let id=localid(kst.name);
                     if(defidentifer.length>0){
                         const d=defidentifer[defidentifer.length-1];
                         if(d.indexOf(kst.name)!=-1){
                             id=d.indexOf(kst.name);
+                            group=defparam[define.length-1][id][1];
                         }
+                    }else{
+                        group=id[0];
                     }
                     push(local.get,id);
                 }
                 if(kst.in=="|"){
-                    if(kst.group=="R"){
+                    /*if(group=="Z"){
+                        push(i64.abs);
+                        group="N";
+                    }*/
+                    if(group=="R"){
                         push(f64.abs);
                     }
-                    if(kst.group=="C"){
+                    if(group=="C"){
                         push(op.call,func.c128abs);
+                        group="R";
                     }
                 }
             }
             if(kst.type=="decl"){
-                addLocal(kst.name,kst.value,kst.group);
+addLocal(kst.name,kst.value,kst.group);
+                group=kst.group;
             }
             if(kst.type=="BinaryExpression"){
-                if(kst.group=="guess"){
-                    kst.group=mother;
+                //左辺と右辺の演算
+                const left=parseAST(kst.left,group);
+                const right=parseAST(kst.right,group);
+                group=fight(left[1],right[1]);
+                if(kst.operator=="/" && (group=="N" || group=="Z")){
+                    group="R";
                 }
+                //leftとrightが違う場合
+                    if((left[1]==right[1] && left[1]==group) || group=="Z"){
+                        push(...left[0]);
+                        push(...right[0]);
+                    }else{
+                    if(group=="R"){
+                        if(left[1]=="R"){
+                            push(...left[0]);
+                        }
+                        if(left[1]=="Z"){
+                            push(...left[0],f64.convert_s);
+                        }
+                        if(left[1]=="N"){
+                            push(...left[0],f64.convert_u);
+                        }
+                        if(right[1]=="R"){
+                            push(...right[0]);
+                        }
+                        if(right[1]=="Z"){
+                            push(...right[0],f64.convert_s);
+                        }
+                        if(right[1]=="N"){
+                            push(...right[0],f64.convert_u);
+                        }
+                    }
+                    if(group=="C"){
+                        if(left[1]=="Z"){
+                            push(...left[0],f64.convert_s);
+                            push(op.call,func.c128extend_f64);
+                            push(...right[0]);
+                        }
+                        if(left[1]=="N"){
+                            push(...left[0],f64.convert_u);
+                            push(op.call,func.c128extend_f64);
+                            push(...right[0]);
+                        }
+                        if(left[1]=="R"){
+                            push(...left[0]);
+                            push(op.call,func.c128extend_f64);
+                            push(...right[0]);
+                        }
+                        if(right[1]=="Z"){
+                            push(...left[0]);
+                            push(...right[0],f64.convert_s);
+                            push(op.call,func.c128extend_f64);
+                        }
+                        if(right[1]=="N"){
+                            push(...left[0]);
+                            push(...right[0],f64.convert_u);
+                            push(op.call,func.c128extend_f64);
+                        }
+                        if(right[1]=="R"){
+                            push(...left[0]);
+                            push(...right[0]);
+                            push(op.call,func.c128extend_f64);
+                        }
+                    }
+                        }
+                //型が決定された。
                 if(kst.operator=="+"){
-                    if(kst.group=="R"){
-                        push(...parseAST(kst.left,"R"),...parseAST(kst.right,"R"),f64.add);
+                    //一般に同型同士の演算は閉じており、
+                    //別型の演算は、高次のものに変化する。
+                    //depth(N)=0 depth(Z)=1 depth(R)=2 depth(C)=3
+                    //N∈Z∈R∈Cの関係が成り立つため。
+                    //R+R=R C+R=C depth([type])が下がることは基本的にない。|C|=Rになるような例外を除けば。
+                    //Z+Rでは、Zの値をRに返る必要がある。
+                    if(group=="R"){
+                        push(f64.add);
                     }
-                    if(kst.group=="Z"){
-                        push(...parseAST(kst.left,"Z"),...parseAST(kst.right,"Z"),i64.add);
+                    if(group=="Z" || group=="N"){
+                        push(i64.add);
                     }
-                    if(kst.group=="C"){
-                        push(...parseAST(kst.left,"C"),...parseAST(kst.right,"C"),...f64x2.add);
+                    if(group=="C"){
+                        push(...f64x2.add);
                     }
                 }
                 if(kst.operator=="-"){
-                    if(kst.group=="R"){
-                        push(...parseAST(kst.left,"R"),...parseAST(kst.right,"R"),f64.sub);
+                    if(group=="R"){
+                        push(f64.sub);
                     }
-                    if(kst.group=="Z"){
-                        push(...parseAST(kst.left,"Z"),...parseAST(kst.right,"Z"),i64.sub);
+                    if(group=="Z"){
+                        push(i64.sub);
                     }
-                    if(kst.group=="C"){
-                        push(...parseAST(kst.left,"C"),...parseAST(kst.right,"C"),...f64x2.sub);
+                    if(group=="C"){
+                        push(...f64x2.sub);
                     }
                 }
                 if(kst.operator=="*"){
-                    if(kst.group=="R"){
-                        push(...parseAST(kst.left,"R"),...parseAST(kst.right,"R"),f64.mul);
+                    if(group=="R"){
+                        push(f64.mul);
                     }
-                    if(kst.group=="Z"){
-                        push(...parseAST(kst.left,"Z"),...parseAST(kst.right,"Z"),i64.mul);
+                    if(group=="Z"){
+                        push(i64.mul);
                     }
-                    if(kst.group=="C"){
-                        //積を計算するための関数を作った方がいい。
-                        push(...parseAST(kst.left,"C"));
-                        push(...parseAST(kst.right,"C"));
+                    if(group=="C"){
                         push(op.call,func.c128mul);
                     }
                 }
                 if(kst.operator=="/"){
-                    if(kst.group=="R"){
-                        push(...parseAST(kst.left,"R"),...parseAST(kst.right,"R"),f64.div);
+                    if(group=="R"){
+                        push(f64.div);
                     }
-                    if(kst.group=="Z"){
-                        push(...parseAST(kst.left,"Z"),...parseAST(kst.right,"Z"),i64.div_s);
-                    }
-                    if(kst.group=="N"){
-                        push(...parseAST(kst.left,"Z"),...parseAST(kst.right,"Z"),i64.div_u);
+                    if(group=="C"){
+                        //push();
                     }
                 }
                 if(kst.operator=="^"){
-                    if(kst.group=="R"){
-                        push(...parseAST(kst.left,"R"));
-                        push(...parseAST(kst.right,"R"),op.call,func.f64pow);
+                    if(group=="R"){
+                        push(op.call,func.f64pow);
                     }
-                    if(kst.group=="Z"){
+                    if(group=="Z"){
                     }
                 }
                 if(kst.operator=="%"){
-                    if(kst.group=="R"){
-                        push(...parseAST(kst.left,"R"));
-                        push(...parseAST(kst.right,"R"),op.call,func.f64mod);
+                    if(group=="R"){
+                        push(op.call,func.f64mod);
                     }
                 }
                 //条件
                 if(kst.operator=="=" || kst.operator=="=="){
-                    if(kst.group=="R"){
-                    push(...parseAST(kst.left,"R"),...parseAST(kst.right,"R"),f64.eq);
+                    if(group=="R"){
+                    push(f64.eq);
                     }
                 }
                 if(kst.operator=="<"){
-                    if(kst.group=="R"){
-                    push(...parseAST(kst.left,"R"),...parseAST(kst.right,"R"),f64.lt);
+                    if(group=="R"){
+                    push(f64.lt);
                     }
                 }
                 if(kst.operator=="<="){
-                    if(kst.group=="R"){
-                    push(...parseAST(kst.left,"R"),...parseAST(kst.right,"R"),f64.le);
+                    if(group=="R"){
+                    push(f64.le);
                     }
                 }
                 if(kst.operator==">"){
-                    if(kst.group=="R"){
-                    push(...parseAST(kst.left,"R"),...parseAST(kst.right,"R"),f64.gt);
+                    if(group=="R"){
+                    push(f64.gt);
                     }
                 }
                 if(kst.operator==">="){
-                    if(kst.group=="R"){
-                    push(...parseAST(kst.left,"R"),...parseAST(kst.right,"R"),f64.ge);
+                    if(group=="R"){
+                    push(f64.ge);
                     }
                 }
                 if(kst.in=="|"){
-                    if(kst.group=="R"){
+                    if(group=="R"){
                         push(f64.abs);
                     }
-                    if(kst.group=="C"){
+                    if(group=="C"){
                         push(op.call,func.c128abs);
+                        group="R";
                     }
                 }
             }
+            //そもそも絶対値をブロックで定義するべきであった。<-この改善は必須と考えよう。
             if(kst.type=="CallExpression"){
-                if(kst.group=="guess"){
-                    kst.group=mother;
-                }
+                if(kst.arguments.length==1){
+                const arg=parseAST(kst.arguments[0]);
+                    push(...arg[0]);
+                //一要素であるとき。
+                //atan2などの二要素関数はRに変換し、結果を出力
+                group=arg[1];
                 if(kst.callee.name=="arg"){
-                    if(kst.group=="C"){
-                        push(...parseAST(kst.arguments[0],"C"),op.call,func.c128arg);
+                    if(group=="C"){
+                        push(op.call,func.c128arg);
+                        group="R";
                     }
                 }
                 if(kst.callee.name=="negk"){
-                    if(kst.group=="R"){
-                        push(...parseAST(kst.arguments[0],"R"));
+                    if(group=="R"){
                         push(op.call,func.f64negk);
                     }
                 }
                 if(kst.callee.name=="exp"){
-                    if(kst.group=="R"){
-                        push(...parseAST(kst.arguments[0],"R"));
+                    if(group=="R"){
                         push(op.call,func.f64exp);
                     }
                 }
                 if(kst.callee.name=="cos"){
-                    if(kst.group=="R"){
-                        push(...parseAST(kst.arguments[0],"R"),op.call,func.f64cos);
+                    if(group=="R"){
+                        push(op.call,func.f64cos);
                     }
                 }
                 if(kst.callee.name=="sin"){
-                    if(kst.group=="R"){
-                        push(...parseAST(kst.arguments[0],"R"));
-                        push(local.set,forp.d);
-                        push(local.get,forp.d,f64.const,...ieee754(0),f64.eq,op.if,op.f64);
-                        push(f64.const,...ieee754(0),op.else);
-                        push(local.get,forp.d,f64.const,...ieee754(Math.PI/2));
-                        push(f64.sub);
-                        push(op.call,func.f64cos);
-                        push(op.end);
+                    if(group=="R"){
+                        push(op.call,func.f64sin);
+                    }
+                }
+                if(kst.callee.name=="extend"){
+                    if(group=="R"){
+                        push(op.call,func.c128extend_f64);
+                        group="C";
                     }
                 }
                 if(kst.callee.name=="tan"){
-                    if(kst.group=="R"){
-                        push(...parseAST(kst.arguments[0],"R"));
-                        push(local.set,forp.d);
-                        push(local.get,forp.d,f64.const,...ieee754(0),f64.eq,op.if,op.f64);
-                        push(f64.const,...ieee754(0),op.else);
-                        push(local.get,forp.d,f64.const,...ieee754(Math.PI/2));
-                        push(f64.sub,op.call,func.f64sin);
-                        push(op.end);
-                        push(local.get,forp.d,op.call,func.f64cos);
-                        push(f64.div);
+                    if(group=="R"){
+                        push(op.call,func.f64tan);
                     }
                 }
+                if(kst.callee.name=="arctan" || kst.callee.name=="atan"){
+                    if(group=="R"){
+                        push(op.call,func.f64atan);
+                    }
+                }
+            }//1以上
+                if(kst.callee.name=="atan2"){
+                    const a=parseAST(kst.arguments[0]);
+                    const b=parseAST(kst.arguments[1]);
+                    group=fight(a,b);
+                    if(group=="R"){
+                        push(...a[0],...b[0]);
+                        push(op.call,func.f64atan2);
+                    }
+                }
+                //ユーザー関数系
                 const imp=userimport.findIndex(e=>e.call.name==kst.callee.name);
                 if(imp!=-1){
                     const ui=userimport[imp];
                     for(let k=0; k<ui.param.length; ++k){
                         //op.f64など
-                        if(ui.param[k]==op.f64){
-                            push(...parseAST(kst.arguments[k],"R"));//ui.param[k]
-                        }
-                        if(ui.param[k]==op.i64){
-                            push(...parseAST(kst.arguments[k],"Z"));//ui.param[k]
+                        //if(ui.param[k]==op.f64){
+                            push(...parseAST(kst.arguments[k]));//ui.param[k]
+                        // }
+                        /*if(ui.param[k]==op.i64){
+                            push(...parseAST(kst.arguments[k]));//ui.param[k]
                         }
                         if(ui.param[k]==op.v128){
-                            push(...parseAST(kst.arguments[k],"C"));//ui.param[k]
-                        }
+                            push(...parseAST(kst.arguments[k]));//ui.param[k]
+                        }*/
                     }
                     push(op.call,func[kst.callee.name]);
-                }
-                if(kst.callee.name=="arctan" || kst.callee.name=="atan"){
-                    if(kst.group=="R"){
-                        push(...parseAST(kst.arguments[0],"R"));
-                        push(op.call,func.f64atan);
-                    }
-                }
-                if(kst.callee.name=="atan2"){
-                    if(kst.group=="R"){
-                        push(...parseAST(kst.arguments[0],"R"),...parseAST(kst.arguments[1],"R"));
-                        push(op.call,func.f64atan2);
+                    if(ui.result.length==0){
+                        group="void";
+                    }else{
+                        group=botype(ui.result[0]);
                     }
                 }
                 if(defname.indexOf(kst.callee.name)!=-1){
                     //arguments
                     const p=defparam[defname.indexOf(kst.callee.name)];
                     for(let k=0; k<p.length; ++k){
-                        //op.f64など
-                        if(p[k]==op.f64){
-                            push(...parseAST(kst.arguments[k],"R"));//ui.param[k]
-                        }
-                        if(p[k]==op.i64){
-                            push(...parseAST(kst.arguments[k],"Z"));//ui.param[k]
-                        }
-                        if(p[k]==op.v128){
-                            push(...parseAST(kst.arguments[k],"C"));//ui.param[k]
-                        }
+                        push(...parseAST(kst.arguments[k])[0]);//ui.param[k]
                     }
                     push(op.call,func[kst.callee.name]);
+                    const res=defresult[defname.indexOf(kst.callee.name)];
+                    if(res.length==0){
+                        group="void";
+                    }else{
+                        group=res[0];
+                    }
                 }
             }
             if(kst.type=="set"){
-                if(kst.group=="guess"){
-                    kst.group=mother;
-                }
                 //localtype
-                push(...parseAST(kst.value,kst.group),local.set,localid(kst.local));
+                push(...parseAST(kst.value,localid(kst.local)[0]),local.set,localid(kst.local));
             }
             if(kst.type=="forblock"){
                 const id=local.f64.findIndex(e=>e.name==kst.looper);
@@ -1363,9 +1524,9 @@ const blueocean={
                 local.f64.push({name:kst.looper,group:"R"});
                 }
                 const ll=localid(kst.looper);
-                push(...parseAST(kst.init,"R"),local.set,ll);
+                push(...parseAST(kst.init)[0],local.set,ll);
                 push(op.block,op.void,op.loop,op.void);
-                push(local.get,ll,...parseAST(kst.to,"R"),f64.gt);//脱出条件
+                push(local.get,ll,...parseAST(kst.to)[0],f64.gt);//脱出条件
                 push(op.br_if,1);
                 blocks.push({
                     type:"for",
@@ -1374,7 +1535,7 @@ const blueocean={
             }
             if(kst.type=="whileblock"){
                 push(op.block,op.void,op.loop,op.void);
-                push(...parseAST(kst.conditions,"R"),i32.eqz);//脱出条件
+                push(...parseAST(kst.conditions)[0],i32.eqz);//脱出条件
                 push(op.br_if,1);
                 blocks.push({
                     type:"while"
@@ -1416,6 +1577,10 @@ const blueocean={
                     result:[kst.group],
                     type:"define"
                 });
+                defparam.push(kst.param);
+            }
+            if(kst.type=="unreachable"){
+                push(0x00);
             }
             if(kst.type=="blockend"){
                 const b=blocks[blocks.length-1];
@@ -1432,7 +1597,7 @@ const blueocean={
                     const code=[];
                     for(let k=0; k<define[define.length-1].length; ++k){
                         const t=define[define.length-1][k];
-                        if(isNaN(t)){
+                        if(isNaN(t)){//無駄な行
                             const id=stock.indexOf(t);
                             if(id==-1){
                             used.push(t[0]);
@@ -1459,7 +1624,7 @@ const blueocean={
                             locals.push(op.v128);
                         }
                     }
-                    defparam.push(b.param);
+                    defresult.push(botype(b.result[0]));
                     defname.push(b.name);
                     if(b.result[0]==op.void){
                         b.result=[];
@@ -1474,14 +1639,16 @@ const blueocean={
                 push(op.call,func.f64consume);
             }
             if(kst.type=="print"){
-                if(kst.group=="guess"){
-                    kst.group=mother;
+                const arg=parseAST(kst.argument);
+                group=arg[1];
+                if(group=="R"){
+                    push(...arg[0],op.call,0);
                 }
-                if(kst.group=="R"){
-                    push(...parseAST(kst.argument,"R"),op.call,0);
+                if(group=="Z" || group=="N"){
+                    push(...arg[0],op.call,2);
                 }
-                if(kst.group=="C"){
-                    push(...parseAST(kst.argument,"C"));
+                if(group=="C"){
+                    push(...arg[0]);
                     push(local.set,forp.c);
                     push(local.get,forp.c,...f64x2.extract,0);
                     push(local.get,forp.c,...f64x2.extract,1);
@@ -1490,7 +1657,7 @@ const blueocean={
             }
             if(kst.type=="UnaryExpression"){
                 if(kst.operator=="$"){
-                    push(...parseAST(kst.value,"R"),f64.sqrt);
+                    push(...parseAST(kst.value)[0],f64.sqrt);
                 }
                 if(kst.operator=="!"){
                 }
@@ -1516,12 +1683,12 @@ const blueocean={
                 }
                 parseConditions(0);
             }
-            return tape;
+            return [tape,group];
         }
         if(asts.indexOf("errorDetected")==-1){
         let code=[];
             for(const ast of asts){
-        code.push(...parseAST(ast,"R"));
+        code.push(...parseAST(ast)[0]);
             }
             for(let k=0; k<code.length; ++k){
                 if(isNaN(code[k])){
@@ -1550,10 +1717,11 @@ const blueocean={
         ...funcnde,
         ...[0x60,0x00,0x00],
         //import,size,imp count
-        ...[0x02,1+13+13+envmod.length,importamount],
+        ...[0x02,1+13+13+13+envmod.length,importamount],
         //modulename,fieldname,kind(=0でfunction),signatureindex
         ...[0x03,...UTFer("env"),0x06,...UTFer("printf"),0x00,0x00],
         ...[0x03,...UTFer("env"),0x06,...UTFer("printc"),0x00,0x01],
+        ...[0x03,...UTFer("env"),0x06,...UTFer("printi"),0x00,0x02],
         ...envmod,
         //Function,size,funccount,index
         ...[0x03,2+defFunctions.length,1+defFunctions.length,...defFunctions,funcparams.length],
