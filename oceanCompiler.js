@@ -723,6 +723,21 @@ const blueocean={
             }
             return "void";
         }
+        function wasmtype(type){
+            if(type=="R"){
+                return op.f64;
+            }
+            if(type=="C"){
+                return op.v128;
+            }
+            if(type=="N" || type=="Z"){
+                return op.i64;
+            }
+            if(type=="B"){
+                return op.i32;
+            }
+            return op.void;
+        }
         const v128={
             const:[0xfd,0x0c],
         }
@@ -735,7 +750,11 @@ const blueocean={
             div:[0xfd,0xf3,0x01],
             splat:[0xfd,0x14],
         }
+            let defparam=[];
+            let defparamed=[];
+            let deflocals=[];
         function localid(name){
+            if(deflocals.length==0){
             const a=local.i64.findIndex(e=>e.name==name);
             if(a==-1){
                 const b=local.f64.findIndex(e=>e.name==name);
@@ -746,6 +765,16 @@ const blueocean={
                 }
             }else{
                 return `Z${a}`
+            }
+            }else{
+                const i=deflocals.length-1;
+                //関数宣言内
+                //deflocals {name,type}
+                const s=deflocals[i].findIndex(e=>e.name==name);
+                if(s==-1){
+                    return "R-1";
+                }
+                return s+defparam[i].length;
             }
         }
         //ループカウンター変数float32timer
@@ -853,7 +882,6 @@ const blueocean={
         }
         let funcsignature=importamount-1;
         const defname=[];
-        const defparam=[];
         const functions=[];
         const defFunctions=[];
         function createFunctions(name,params,results,locals,callstacks){ //params,results,locals,locals=[f64,f64...]
@@ -1182,9 +1210,12 @@ const blueocean={
                 }
             }
             function addLocal(name,init,group){
+            if(define.length==0){
             if(group=="R"){
                 local.f64.push({name:name,group:group,id:local.f64.length});
+                if(init!=0){
                 push(...parseAST(init,"R")[0],local.set,`R${local.f64.length-1}`);
+                }
             }
             if(group=="Z" || group=="N"){
                 local.i64.push({name:name,group:group,id:local.i64.length});
@@ -1193,6 +1224,21 @@ const blueocean={
             if(group=="C"){
                 local.v128.push({name:name,group:group,id:local.v128.length});
                 push(...parseAST(init,"C")[0],local.set,`C${local.v128.length-1}`);
+            }
+            }else{
+                //関数宣言内である。
+                deflocals[deflocals.length-1].push({name:name,group:wasmtype(group)});
+                if(group=="R"){
+                if(init!=0){
+                push(...parseAST(init,"R")[0],local.set,localid(name));
+                }
+            }
+            if(group=="Z" || group=="N"){
+                push(...parseAST(init,"Z")[0],local.set,localid(name));
+            }
+            if(group=="C"){
+                push(...parseAST(init,"C")[0],local.set,localid(name));
+            }
             }
         }
             let tape=[];
@@ -1224,14 +1270,19 @@ const blueocean={
                     group="C";
                 }else{
                     let id=localid(kst.name);
-                    if(defidentifer.length>0){
+                    if(defidentifer.length>0 && isNaN(id)){
                         const d=defidentifer[defidentifer.length-1];
                         if(d.indexOf(kst.name)!=-1){
                             id=d.indexOf(kst.name);
                             group=defparam[define.length-1][id][1];
                         }
                     }else{
+                        if(isNaN(id)){
                         group=id[0];
+                        }else{
+                            const dl=deflocals[deflocals.length-1].findIndex(e=>e.name==kst.name);
+                            group=botype(deflocals[deflocals.length-1][dl].group);
+                        }
                     }
                     push(local.get,id);
                 }
@@ -1255,7 +1306,7 @@ addLocal(kst.name,kst.value,kst.group);
             }
             if(kst.type=="BinaryExpression"){
                 //左辺と右辺の演算
-                const left=parseAST(kst.left,group);
+                const left=parseAST(kst.left);
                 const right=parseAST(kst.right,group);
                 group=fight(left[1],right[1]);
                 if(kst.operator=="/" && (group=="N" || group=="Z")){
@@ -1509,7 +1560,7 @@ addLocal(kst.name,kst.value,kst.group);
                 }
                 if(defname.indexOf(kst.callee.name)!=-1){
                     //arguments
-                    const p=defparam[defname.indexOf(kst.callee.name)];
+                    const p=defparamed[defname.indexOf(kst.callee.name)];
                     for(let k=0; k<p.length; ++k){
                         const a=parseAST(kst.arguments[k],p[k][1]);
                         if(a[1]!=p[k][1]){
@@ -1531,14 +1582,24 @@ addLocal(kst.name,kst.value,kst.group);
                 push(...parseAST(kst.value,localid(kst.local)[0])[0],local.set,localid(kst.local));
             }
             if(kst.type=="forblock"){
-                const id=local.f64.findIndex(e=>e.name==kst.looper);
+                let id;
+                if(define.length==0){
+                    id=local.f64.findIndex(e=>e.name==kst.looper);
+                }else{
+                    id=deflocals[deflocals.length-1].findIndex(e=>e.name==kst.looper);
+                }
                 if(id==-1){
-                local.f64.push({name:kst.looper,group:"R"});
+                addLocal(kst.looper,0,"R");
                 }
                 const ll=localid(kst.looper);
                 push(...parseAST(kst.init)[0],local.set,ll);
                 push(op.block,op.void,op.loop,op.void);
-                push(local.get,ll,...parseAST(kst.to)[0],f64.gt);//脱出条件
+                push(local.get,ll,...parseAST(kst.to)[0]);//脱出条件
+                if(define.length==0){//なぜ???
+                    push(f64.gt);
+                }else{
+                    push(f64.le);
+                }
                 push(op.br_if,1);
                 blocks.push({
                     type:"for",
@@ -1590,6 +1651,8 @@ addLocal(kst.name,kst.value,kst.group);
                     result:[kst.group],
                     type:"define"
                 });
+                //defparam.push(params);
+                deflocals.push([]);
                 defname.push(kst.name);
                 defresult.push(res);
                 defparam.push(kst.param);
@@ -1615,45 +1678,23 @@ addLocal(kst.name,kst.value,kst.group);
                 if(b.type=="while"){
                     push(op.br,0,op.end,op.end);
                 }
-                const used=[];//Rとか
-                const stock=[];
                 if(b.type=="define"){
-                    const code=[];
-                    for(let k=0; k<define[define.length-1].length; ++k){
-                        const t=define[define.length-1][k];
-                        if(isNaN(t)){//無駄な行
-                            const id=stock.indexOf(t);
-                            if(id==-1){
-                            used.push(t[0]);
-                            code.push(stock.length+b.param.length);
-                                console.log();
-                            stock.push(t);
-                            }else{
-                                code.push(id+b.param.length);
-                            }
-                        }else{
-                        code.push(t);
-                        }
-                    }
+                    const ind=define.length-1;
+                    const code=define[ind];
                     const locals=[];
-                    for(let k=0; k<used.length; ++k){
-                        const u=used[k];
-                        if(u=="R"){
-                            locals.push(op.f64);
-                        }
-                        if(u=="Z" || u=="N"){
-                            locals.push(op.i64);
-                        }
-                        if(u=="C"){
-                            locals.push(op.v128);
-                        }
+                    for(let k=0; k<deflocals[ind].length; ++k){
+                        locals.push(deflocals[ind][k].group);
                     }
                     if(b.result[0]==op.void){
                         b.result=[];
                     }
+                    defparamed.push(defparam[ind]);
                     createFunctions(b.name,b.param,b.result,locals,code);
-                    defidentifer=defidentifer.slice(0,defidentifer.length-1);
-                    define=define.slice(0,define.length-1);
+                    defidentifer=defidentifer.slice(0,ind);
+                    define=define.slice(0,ind);
+                    deflocals=deflocals.slice(0,ind);
+                    //defresult=defresult.slice(0,ind);
+                    defparam=defparam.slice(0,ind);
                 }
                 blocks=blocks.slice(0,blocks.length-1);
             }
@@ -1693,9 +1734,10 @@ addLocal(kst.name,kst.value,kst.group);
                 }
             }
             if(kst.type=="PiecewiseExpression"){
+                //ここはblock定義で作り直す必要がある。
                 function parseConditions(k){
-                    push(...parseAST(kst.tree[k].conditions,"R"),op.if,op.void);
-                    push(...parseAST(kst.tree[k].res,"R"),op.else);
+                    push(...parseAST(kst.tree[k].conditions,"R")[0],op.if,op.void);
+                    push(...parseAST(kst.tree[k].res,"R")[0],op.else);
                     if(k+1==kst.tree.length){
                     //push(f64.const,...ieee754(0));//でなければ
                     }else{
