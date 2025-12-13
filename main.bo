@@ -21,3 +21,6 @@ x=x-1;
 bind(x);
 }
 print x;
+//複素数計算
+whr z=i in C;
+print z*z; //expected -1 in console
