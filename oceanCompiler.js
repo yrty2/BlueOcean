@@ -1,6 +1,6 @@
 const blueocean={
     version:1.0,
-    opcode:["print","as","where","in","is","consume_R","for","whr","fn","while","assign","unreachable"],
+    opcode:["print","as","where","in","is","consume_R","for","whr","fn","while","assign","unreachable","return"],
     tokenizer(code){
         function pushAt(u,t,v){
         return [...u.slice(0,t+1),v,...u.slice(t+1,u.length)];
@@ -343,19 +343,24 @@ const blueocean={
                     locals.push({name:name,group:type});
                     return {type:"decl",name:name,value:value,group:type};
                 }
+                if(op=="return"){
+                    //return 1
+                    const value=parseExpression();
+                    return {type:"return",value:value};
+                }
                 if(op=="while"){
                     //while(conditions){func}
                     expect("(");
                     const cond=parseExpression();
                     expect(")");
                     expect("{");
-                    return {type:"whileblock",conditions:cond,group:"guess"};
+                    return {type:"whileblock",conditions:cond};
                 }
                 if(op=="assign"){
                     //Like~assign x 1
                     const local=consume();
                     const value=parseExpression();
-                    return {type:"set",local:local,value:value,group:wgp(value)};
+                    return {type:"set",local:local,value:value};
                 }
                 if(op=="fn"){
                     //fn name(...param in type){func}
@@ -842,7 +847,6 @@ const blueocean={
                 signature=funcpr.indexOf(pr);
             }
             Functions.push(signature);
-            console.log(funcpr);
             envmod.push(0x03,...UTFer("env"),u.call.name.length,...UTFer(u.call.name),0x00,signature);
             func[u.call.name]=importamount;
             importamount++;
@@ -1191,11 +1195,6 @@ const blueocean={
                 push(...parseAST(init,"C")[0],local.set,`C${local.v128.length-1}`);
             }
         }
-            function createLocal(value,group){
-                const seed=Math.random();
-                addLocal(seed,value,group);
-                return localid(seed);
-            }
             let tape=[];
             if(kst.type=="Literal"){
                 if(group=="void" || group=="R"){
@@ -1418,55 +1417,72 @@ addLocal(kst.name,kst.value,kst.group);
             }
             //そもそも絶対値をブロックで定義するべきであった。<-この改善は必須と考えよう。
             if(kst.type=="CallExpression"){
-                if(kst.arguments.length==1){
-                const arg=parseAST(kst.arguments[0]);
-                    push(...arg[0]);
-                //一要素であるとき。
-                //atan2などの二要素関数はRに変換し、結果を出力
-                group=arg[1];
                 if(kst.callee.name=="arg"){
+                    const arg=parseAST(kst.arguments[0]);
+                    push(...arg[0]);
+                    group=arg[1];
                     if(group=="C"){
                         push(op.call,func.c128arg);
                         group="R";
                     }
                 }
                 if(kst.callee.name=="negk"){
+                    const arg=parseAST(kst.arguments[0]);
+                    push(...arg[0]);
+                    group=arg[1];
                     if(group=="R"){
                         push(op.call,func.f64negk);
                     }
                 }
                 if(kst.callee.name=="exp"){
+                    const arg=parseAST(kst.arguments[0]);
+                    push(...arg[0]);
+                    group=arg[1];
                     if(group=="R"){
                         push(op.call,func.f64exp);
                     }
                 }
                 if(kst.callee.name=="cos"){
+                    const arg=parseAST(kst.arguments[0]);
+                    push(...arg[0]);
+                    group=arg[1];
                     if(group=="R"){
                         push(op.call,func.f64cos);
                     }
                 }
                 if(kst.callee.name=="sin"){
+                    const arg=parseAST(kst.arguments[0]);
+                    push(...arg[0]);
+                    group=arg[1];
                     if(group=="R"){
                         push(op.call,func.f64sin);
                     }
                 }
                 if(kst.callee.name=="extend"){
+                    const arg=parseAST(kst.arguments[0]);
+                    push(...arg[0]);
+                    group=arg[1];
                     if(group=="R"){
                         push(op.call,func.c128extend_f64);
                         group="C";
                     }
                 }
                 if(kst.callee.name=="tan"){
+                    const arg=parseAST(kst.arguments[0]);
+                    push(...arg[0]);
+                    group=arg[1];
                     if(group=="R"){
                         push(op.call,func.f64tan);
                     }
                 }
                 if(kst.callee.name=="arctan" || kst.callee.name=="atan"){
+                    const arg=parseAST(kst.arguments[0]);
+                    push(...arg[0]);
+                    group=arg[1];
                     if(group=="R"){
                         push(op.call,func.f64atan);
                     }
                 }
-            }//1以上
                 if(kst.callee.name=="atan2"){
                     const a=parseAST(kst.arguments[0]);
                     const b=parseAST(kst.arguments[1]);
@@ -1481,16 +1497,8 @@ addLocal(kst.name,kst.value,kst.group);
                 if(imp!=-1){
                     const ui=userimport[imp];
                     for(let k=0; k<ui.param.length; ++k){
-                        //op.f64など
-                        //if(ui.param[k]==op.f64){
-                            push(...parseAST(kst.arguments[k]));//ui.param[k]
-                        // }
-                        /*if(ui.param[k]==op.i64){
-                            push(...parseAST(kst.arguments[k]));//ui.param[k]
-                        }
-                        if(ui.param[k]==op.v128){
-                            push(...parseAST(kst.arguments[k]));//ui.param[k]
-                        }*/
+                        console.log();
+                            push(...parseAST(kst.arguments[k],botype(ui.param[k]))[0]);//ui.param[k]
                     }
                     push(op.call,func[kst.callee.name]);
                     if(ui.result.length==0){
@@ -1503,7 +1511,11 @@ addLocal(kst.name,kst.value,kst.group);
                     //arguments
                     const p=defparam[defname.indexOf(kst.callee.name)];
                     for(let k=0; k<p.length; ++k){
-                        push(...parseAST(kst.arguments[k])[0]);//ui.param[k]
+                        const a=parseAST(kst.arguments[k],p[k][1]);
+                        if(a[1]!=p[k][1]){
+                            console.warn(`botype missmatch in parameter of ${kst.callee.name} index at ${k}`);
+                        }
+                        push(...a[0]);//ui.param[k]
                     }
                     push(op.call,func[kst.callee.name]);
                     const res=defresult[defname.indexOf(kst.callee.name)];
@@ -1516,7 +1528,7 @@ addLocal(kst.name,kst.value,kst.group);
             }
             if(kst.type=="set"){
                 //localtype
-                push(...parseAST(kst.value,localid(kst.local)[0]),local.set,localid(kst.local));
+                push(...parseAST(kst.value,localid(kst.local)[0])[0],local.set,localid(kst.local));
             }
             if(kst.type=="forblock"){
                 const id=local.f64.findIndex(e=>e.name==kst.looper);
@@ -1557,6 +1569,7 @@ addLocal(kst.name,kst.value,kst.group);
                     }
                     dlocal.push(kst.param[k][0]);
                 }
+                const res=kst.group;
                 if(kst.group=="void"){
                     kst.group=op.void;
                 }
@@ -1577,10 +1590,21 @@ addLocal(kst.name,kst.value,kst.group);
                     result:[kst.group],
                     type:"define"
                 });
+                defname.push(kst.name);
+                defresult.push(res);
                 defparam.push(kst.param);
             }
             if(kst.type=="unreachable"){
                 push(0x00);
+            }
+            if(kst.type=="return"){
+                //value
+                const type=defresult[defresult.length-1];
+                const a=parseAST(kst.value,type);
+                if(a[1]!=type){
+                    console.warn(`return botype missmatch in ${defname[defname.length-1]}`);
+                }
+                push(...a[0]);
             }
             if(kst.type=="blockend"){
                 const b=blocks[blocks.length-1];
@@ -1624,8 +1648,6 @@ addLocal(kst.name,kst.value,kst.group);
                             locals.push(op.v128);
                         }
                     }
-                    defresult.push(botype(b.result[0]));
-                    defname.push(b.name);
                     if(b.result[0]==op.void){
                         b.result=[];
                     }
